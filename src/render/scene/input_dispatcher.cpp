@@ -26,6 +26,8 @@ void InputDispatcher::pointerEnter(float x, float y, std::uint32_t serial) {
   auto* area = resolveInputArea(hit);
 
   if (m_hoveredArea && m_hoveredArea != area) {
+    m_hoveredArea->m_hovered = false;
+    m_hoveredArea->m_pressed = false;
     if (m_hoveredArea->m_onLeave) m_hoveredArea->m_onLeave();
   }
 
@@ -56,11 +58,18 @@ void InputDispatcher::pointerMotion(float x, float y, std::uint32_t) {
   m_lastPointerX = x;
   m_lastPointerY = y;
   if (m_capturedArea != nullptr && m_capturedArea->enabled()) {
-    InputArea::PointerData data{x, y, 0, false};
-    if (m_capturedArea->m_onMotion) {
-      m_capturedArea->m_onMotion(data);
+    if (!m_capturedArea->m_pressed || !m_capturedArea->visible() || !m_capturedArea->hitTestVisible()) {
+      m_capturedArea = nullptr;
+    } else {
+      InputArea::PointerData data{x, y, 0, false};
+      if (m_capturedArea->m_onMotion) {
+        m_capturedArea->m_onMotion(data);
+      }
+      return;
     }
-    return;
+  }
+  if (m_capturedArea != nullptr && !m_capturedArea->enabled()) {
+    m_capturedArea = nullptr;
   }
   Node* hit = Node::hitTest(m_sceneRoot, x, y);
   auto* area = resolveInputArea(hit);
@@ -71,10 +80,12 @@ void InputDispatcher::pointerMotion(float x, float y, std::uint32_t) {
       m_hoveredArea->m_pressed = false;
       if (m_hoveredArea->m_onLeave) m_hoveredArea->m_onLeave();
     }
-    if (area && area->m_onEnter) {
+    if (area) {
       area->m_hovered = true;
-      InputArea::PointerData data{x, y, 0, false};
-      area->m_onEnter(data);
+      if (area->m_onEnter) {
+        InputArea::PointerData data{x, y, 0, false};
+        area->m_onEnter(data);
+      }
     }
     m_hoveredArea = area;
   }
@@ -145,6 +156,16 @@ void InputDispatcher::setCursorShapeCallback(std::function<void(std::uint32_t, s
 }
 
 void InputDispatcher::invalidateTransientPointers() {
+  if (m_hoveredArea != nullptr) {
+    m_hoveredArea->m_hovered = false;
+    m_hoveredArea->m_pressed = false;
+    if (m_hoveredArea->m_onLeave) {
+      m_hoveredArea->m_onLeave();
+    }
+  }
+  if (m_capturedArea != nullptr) {
+    m_capturedArea->m_pressed = false;
+  }
   m_hoveredArea = nullptr;
   m_capturedArea = nullptr;
 }

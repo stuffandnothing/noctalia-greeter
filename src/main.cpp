@@ -95,7 +95,7 @@ int main(int argc, char* argv[]) {
                 "  NOCTALIA_GREETER_LOG  Log file path (overrides defaults)\n"
                 "\n"
                 "Greetd example:\n"
-                "  command = \"dbus-run-session cage -s -mlast -- /usr/local/bin/noctalia-greeter\"\n"
+                "  command = \"/usr/local/bin/noctalia-greeter-session\"\n"
                 "  user = \"greeter\"\n"
                 "\n"
                 "For more information, visit https://noctalia.dev");

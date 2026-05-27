@@ -65,6 +65,8 @@ private:
   void clearSessionMenu();
   void clearSchemeMenu();
   void enterPasswordStep(std::size_t userIndex);
+  void loadPreferences();
+  void savePreferences() const;
 
   Node m_root;
   AnimationManager m_animations;

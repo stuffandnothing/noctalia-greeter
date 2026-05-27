@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -eu
+
+GREETER_BIN="${NOCTALIA_GREETER_BIN:-/usr/local/bin/noctalia-greeter}"
+
+# Distro-agnostic runtime dir fallback for environments where PAM session
+# modules don't create /run/user/<uid>.
+if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "${XDG_RUNTIME_DIR}" ] || [ ! -w "${XDG_RUNTIME_DIR}" ]; then
+  XDG_RUNTIME_DIR="/tmp/noctalia-runtime-$(id -u)"
+  export XDG_RUNTIME_DIR
+  mkdir -p "${XDG_RUNTIME_DIR}"
+  chmod 700 "${XDG_RUNTIME_DIR}" || true
+fi
+
+unset WAYLAND_DISPLAY
+exec dbus-run-session -- cage -s -mlast -- "${GREETER_BIN}"

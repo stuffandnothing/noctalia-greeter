@@ -195,3 +195,9 @@ executable('noctalia-greeter',
 install_subdir('assets',
   install_dir: get_option('datadir') / 'noctalia-greeter',
 )
+
+install_data(
+  'scripts/noctalia-greeter-session',
+  install_dir: get_option('bindir'),
+  install_mode: 'rwxr-xr-x',
+)

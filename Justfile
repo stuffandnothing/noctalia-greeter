@@ -35,6 +35,15 @@ lint:
 # Install to system
 install: build
   sudo meson install -C build
+  sudo ./scripts/setup_greeter_system.sh
+
+# Ensure greetd PAM creates XDG_RUNTIME_DIR via systemd/elogind module (idempotent)
+setup-greetd-pam:
+  sudo ./scripts/setup_greetd_pam.sh
+
+# Run all system setup steps needed by greetd deployments.
+setup-system:
+  sudo ./scripts/setup_greeter_system.sh
 
 # Create persistent log dirs for greetd (run once on the target machine)
 setup-log-dir:
