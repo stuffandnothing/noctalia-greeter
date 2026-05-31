@@ -82,6 +82,11 @@ private:
   void moveMenuHighlight(int delta);
   void activateMenuHighlight();
   void applyMenuHighlight();
+  void buildMenu(const std::vector<std::string> &names, std::size_t selected,
+                 Box *anchor, bool upward, bool rightAlign, int zBase,
+                 Box *&panelOut, std::vector<Box *> &rows,
+                 std::vector<Label *> &labels, std::vector<InputArea *> &areas,
+                 std::function<void(std::size_t)> onSelect);
   void rebuildUserMenu();
   void rebuildSessionMenu();
   void rebuildSchemeMenu();

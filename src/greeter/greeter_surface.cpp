@@ -640,24 +640,31 @@ void GreeterSurface::layoutScene(std::uint32_t width, std::uint32_t height) {
   const float headerBlockHeight =
       logoBlockHeight + headerTextHeight + headerToContentGap;
 
-  float contentBlockHeight = 0.0f;
-  if (m_passwordVisible) {
-    contentBlockHeight = Style::controlHeight;
-  } else if (!m_userRowButtons.empty()) {
+  // Size the content area to the tallest state (the full user list) and reuse
+  // it in every state, so picking a user and switching to the password step
+  // never resizes the panel. The password field occupies the top of this area.
+  float contentBlockHeight = Style::controlHeight;
+  if (!m_userRowButtons.empty()) {
     contentBlockHeight =
         rowHeight * static_cast<float>(m_userRowButtons.size()) +
         rowGap * static_cast<float>(m_userRowButtons.size() - 1);
   }
 
+  // Always reserve exactly one status line so an authentication error never
+  // grows (and re-centers) the panel. Probe the line height with sample text.
   const bool hasStatus = !m_status.empty();
-  const float statusGap = hasStatus ? Style::spaceSm : 0.0f;
-  const float statusHeight = hasStatus ? m_statusLabel->height() : 0.0f;
+  const std::string actualStatus = m_status;
+  m_statusLabel->setText("Xy");
+  m_statusLabel->measure(*renderer);
+  const float statusLineHeight = m_statusLabel->height();
+  m_statusLabel->setText(actualStatus);
+  m_statusLabel->measure(*renderer);
+
+  const float statusGap = Style::spaceSm;
   const float panelTopPadding = panelPadding;
-  const float panelBottomPadding =
-      hasStatus ? panelPadding
-                : (m_passwordVisible ? Style::spaceSm : panelPadding);
+  const float panelBottomPadding = panelPadding;
   const float panelInnerHeight =
-      headerBlockHeight + contentBlockHeight + statusGap + statusHeight;
+      headerBlockHeight + contentBlockHeight + statusGap + statusLineHeight;
   const float minPanelHeight = 0.0f;
   const float maxPanelHeight =
       std::max(minPanelHeight, sh - panelPadding * 2.0f);
@@ -1789,27 +1796,59 @@ void GreeterSurface::rebuildUserMenu() {
   }
 }
 
-void GreeterSurface::rebuildSessionMenu() {
-  clearSessionMenu();
-  if (!m_sessionMenuOpen || m_sessions.empty()) {
+void GreeterSurface::buildMenu(const std::vector<std::string> &names,
+                               std::size_t selected, Box *anchor, bool upward,
+                               bool rightAlign, int zBase, Box *&panelOut,
+                               std::vector<Box *> &rows,
+                               std::vector<Label *> &labels,
+                               std::vector<InputArea *> &areas,
+                               std::function<void(std::size_t)> onSelect) {
+  const std::size_t count = names.size();
+  if (anchor == nullptr || count == 0) {
     return;
   }
 
   const float rowH = Style::controlHeightSm;
-  const std::size_t count = m_sessions.size();
-  const float x = m_sessionSelectBox->x();
-  const float w = m_sessionSelectBox->width();
-  const float y = m_sessionSelectBox->y() - (rowH * static_cast<float>(count)) -
-                  Style::spaceXs;
+  const float anchorX = anchor->x();
+  const float anchorW = anchor->width();
   const float h = rowH * static_cast<float>(count);
 
+  // Create and measure the labels first so the panel can be widened to fit the
+  // longest entry (session/scheme names are often wider than the selector).
+  float contentW = anchorW;
+  for (std::size_t i = 0; i < count; ++i) {
+    auto label = std::make_unique<Label>();
+    auto *labelPtr = label.get();
+    labelPtr->setText(names[i]);
+    labelPtr->setFontSize(Style::fontSizeBody);
+    labelPtr->setColor(i == selected ? colorForRole(ColorRole::Primary)
+                                     : colorForRole(ColorRole::OnSurface));
+    labelPtr->setZIndex(zBase + 2);
+    m_root.addChild(std::move(label));
+    labelPtr->measure(*m_renderContext);
+    contentW = std::max(contentW, labelPtr->width() + 2.0f * Style::spaceMd);
+    labels.push_back(labelPtr);
+  }
+
+  // Fit the content, but stay within the screen and never narrower than the
+  // selector.
+  const float screenW = m_root.width();
+  const float maxW = std::max(anchorW, screenW - 2.0f * Style::spaceLg);
+  const float w = std::min(contentW, maxW);
+  const float maxX = std::max(Style::spaceLg, screenW - Style::spaceLg - w);
+  float x = rightAlign ? (anchorX + anchorW - w) : anchorX;
+  x = std::clamp(x, Style::spaceLg, maxX);
+
+  const float y = upward ? (anchor->y() - h - Style::spaceXs)
+                         : (anchor->y() + anchor->height() + Style::spaceXs);
+
   auto panel = std::make_unique<Box>();
-  m_sessionMenuPanel = panel.get();
-  m_sessionMenuPanel->setZIndex(50);
+  panelOut = panel.get();
+  panelOut->setZIndex(zBase);
   m_root.addChild(std::move(panel));
-  m_sessionMenuPanel->setPosition(x, y);
-  m_sessionMenuPanel->setSize(w, h);
-  m_sessionMenuPanel->setStyle(RoundedRectStyle{
+  panelOut->setPosition(x, y);
+  panelOut->setSize(w, h);
+  panelOut->setStyle(RoundedRectStyle{
       .fill = colorForRole(ColorRole::SurfaceVariant),
       .border = colorForRole(ColorRole::Outline),
       .fillMode = FillMode::Solid,
@@ -1819,64 +1858,60 @@ void GreeterSurface::rebuildSessionMenu() {
   });
 
   for (std::size_t i = 0; i < count; ++i) {
+    const float rowY = y + rowH * static_cast<float>(i);
+
     auto row = std::make_unique<Box>();
     auto *rowPtr = row.get();
-    rowPtr->setZIndex(51);
-    rowPtr->setPosition(x, y + rowH * static_cast<float>(i));
+    rowPtr->setZIndex(zBase + 1);
+    rowPtr->setPosition(x, rowY);
     rowPtr->setSize(w, rowH);
     rowPtr->setStyle(RoundedRectStyle{
         .fill = colorForRole(ColorRole::SurfaceVariant, 0.01f),
         .fillMode = FillMode::Solid,
     });
     m_root.addChild(std::move(row));
-    m_sessionMenuRows.push_back(rowPtr);
+    rows.push_back(rowPtr);
 
-    auto label = std::make_unique<Label>();
-    auto *labelPtr = label.get();
-    labelPtr->setText(m_sessions[i].name);
-    labelPtr->setFontSize(Style::fontSizeBody);
-    labelPtr->setColor(i == m_selectedSession
-                           ? colorForRole(ColorRole::Primary)
-                           : colorForRole(ColorRole::OnSurface));
-    labelPtr->setZIndex(52);
-    m_root.addChild(std::move(label));
-    labelPtr->measure(*m_renderContext);
+    Label *labelPtr = labels[i];
     labelPtr->setPosition(x + Style::spaceMd,
-                          y + rowH * static_cast<float>(i) +
-                              std::round((rowH - labelPtr->height()) * 0.5f));
-    m_sessionMenuLabels.push_back(labelPtr);
+                          rowY + std::round((rowH - labelPtr->height()) * 0.5f));
 
     auto area = std::make_unique<InputArea>();
     auto *areaPtr = area.get();
     areaPtr->setFocusable(true);
-    areaPtr->setZIndex(53);
+    areaPtr->setZIndex(zBase + 3);
     areaPtr->setOnEnter([this, i](const InputArea::PointerData &) {
-      if (i < m_sessionMenuRows.size() && m_sessionMenuRows[i] != nullptr) {
-        m_sessionMenuRows[i]->setStyle(RoundedRectStyle{
-            .fill = colorForRole(ColorRole::Hover, 0.35f),
-            .fillMode = FillMode::Solid,
-        });
-      }
+      m_menuHighlight = static_cast<std::ptrdiff_t>(i);
+      applyMenuHighlight();
+      requestRedraw();
     });
-    areaPtr->setOnLeave([this, i]() {
-      if (i < m_sessionMenuRows.size() && m_sessionMenuRows[i] != nullptr) {
-        m_sessionMenuRows[i]->setStyle(RoundedRectStyle{
-            .fill = colorForRole(ColorRole::SurfaceVariant, 0.01f),
-            .fillMode = FillMode::Solid,
-        });
-      }
-    });
-    areaPtr->setOnClick([this, i](const InputArea::PointerData &data) {
+    areaPtr->setOnClick([onSelect, i](const InputArea::PointerData &data) {
       if (data.button != BTN_LEFT) {
         return;
       }
-      selectSession(i);
+      onSelect(i);
     });
     m_root.addChild(std::move(area));
-    areaPtr->setPosition(x, y + rowH * static_cast<float>(i));
+    areaPtr->setPosition(x, rowY);
     areaPtr->setSize(w, rowH);
-    m_sessionMenuAreas.push_back(areaPtr);
+    areas.push_back(areaPtr);
   }
+}
+
+void GreeterSurface::rebuildSessionMenu() {
+  clearSessionMenu();
+  if (!m_sessionMenuOpen || m_sessions.empty()) {
+    return;
+  }
+  std::vector<std::string> names;
+  names.reserve(m_sessions.size());
+  for (const auto &session : m_sessions) {
+    names.push_back(session.name);
+  }
+  buildMenu(names, m_selectedSession, m_sessionSelectBox, /*upward=*/true,
+            /*rightAlign=*/false, /*zBase=*/50, m_sessionMenuPanel,
+            m_sessionMenuRows, m_sessionMenuLabels, m_sessionMenuAreas,
+            [this](std::size_t i) { selectSession(i); });
 }
 
 void GreeterSurface::rebuildSchemeMenu() {
@@ -1884,87 +1919,8 @@ void GreeterSurface::rebuildSchemeMenu() {
   if (!m_schemeMenuOpen || m_schemeNames.empty()) {
     return;
   }
-
-  const float rowH = Style::controlHeightSm;
-  const std::size_t count = m_schemeNames.size();
-  const float x = m_schemeSelectBox->x();
-  const float w = m_schemeSelectBox->width();
-  const float y =
-      m_schemeSelectBox->y() + m_schemeSelectBox->height() + Style::spaceXs;
-  const float h = rowH * static_cast<float>(count);
-
-  auto panel = std::make_unique<Box>();
-  m_schemeMenuPanel = panel.get();
-  m_schemeMenuPanel->setZIndex(60);
-  m_root.addChild(std::move(panel));
-  m_schemeMenuPanel->setPosition(x, y);
-  m_schemeMenuPanel->setSize(w, h);
-  m_schemeMenuPanel->setStyle(RoundedRectStyle{
-      .fill = colorForRole(ColorRole::SurfaceVariant),
-      .border = colorForRole(ColorRole::Outline),
-      .fillMode = FillMode::Solid,
-      .radius = Style::scaledRadiusMd(),
-      .softness = 1.0f,
-      .borderWidth = Style::borderWidth,
-  });
-
-  for (std::size_t i = 0; i < count; ++i) {
-    auto row = std::make_unique<Box>();
-    auto *rowPtr = row.get();
-    rowPtr->setZIndex(61);
-    rowPtr->setPosition(x, y + rowH * static_cast<float>(i));
-    rowPtr->setSize(w, rowH);
-    rowPtr->setStyle(RoundedRectStyle{
-        .fill = colorForRole(ColorRole::SurfaceVariant, 0.01f),
-        .fillMode = FillMode::Solid,
-    });
-    m_root.addChild(std::move(row));
-    m_schemeMenuRows.push_back(rowPtr);
-
-    auto label = std::make_unique<Label>();
-    auto *labelPtr = label.get();
-    labelPtr->setText(m_schemeNames[i]);
-    labelPtr->setFontSize(Style::fontSizeBody);
-    labelPtr->setColor(i == m_selectedScheme
-                           ? colorForRole(ColorRole::Primary)
-                           : colorForRole(ColorRole::OnSurface));
-    labelPtr->setZIndex(62);
-    m_root.addChild(std::move(label));
-    labelPtr->measure(*m_renderContext);
-    labelPtr->setPosition(x + Style::spaceMd,
-                          y + rowH * static_cast<float>(i) +
-                              std::round((rowH - labelPtr->height()) * 0.5f));
-    m_schemeMenuLabels.push_back(labelPtr);
-
-    auto area = std::make_unique<InputArea>();
-    auto *areaPtr = area.get();
-    areaPtr->setFocusable(true);
-    areaPtr->setZIndex(63);
-    areaPtr->setOnEnter([this, i](const InputArea::PointerData &) {
-      if (i < m_schemeMenuRows.size() && m_schemeMenuRows[i] != nullptr) {
-        m_schemeMenuRows[i]->setStyle(RoundedRectStyle{
-            .fill = colorForRole(ColorRole::Hover, 0.35f),
-            .fillMode = FillMode::Solid,
-        });
-      }
-    });
-    areaPtr->setOnLeave([this, i]() {
-      if (i < m_schemeMenuRows.size() && m_schemeMenuRows[i] != nullptr) {
-        m_schemeMenuRows[i]->setStyle(RoundedRectStyle{
-            .fill = colorForRole(ColorRole::SurfaceVariant, 0.01f),
-            .fillMode = FillMode::Solid,
-        });
-      }
-    });
-    areaPtr->setOnClick([this, i](const InputArea::PointerData &data) {
-      if (data.button != BTN_LEFT) {
-        return;
-      }
-      selectScheme(i);
-    });
-    m_root.addChild(std::move(area));
-    areaPtr->setPosition(x, y + rowH * static_cast<float>(i));
-    areaPtr->setSize(w, rowH);
-    m_schemeMenuAreas.push_back(areaPtr);
-  }
+  buildMenu(m_schemeNames, m_selectedScheme, m_schemeSelectBox, /*upward=*/false,
+            /*rightAlign=*/true, /*zBase=*/60, m_schemeMenuPanel,
+            m_schemeMenuRows, m_schemeMenuLabels, m_schemeMenuAreas,
+            [this](std::size_t i) { selectScheme(i); });
 }
