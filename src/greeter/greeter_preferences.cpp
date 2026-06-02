@@ -2,6 +2,8 @@
 
 #include "core/log.h"
 #include "greeter/appearance_sync.h"
+#include <algorithm>
+#include <array>
 #include <cctype>
 #include <cerrno>
 #include <cstring>
@@ -47,16 +49,16 @@ constexpr const char *kLegacyGreeterConfPath = "/etc/noctalia-greeter.conf";
   return trim(line);
 }
 
-[[nodiscard]] std::optional<std::string> unquoteValue(std::string_view value) {
-  value = trim(value);
+[[nodiscard]] std::optional<std::string> unquoteValue(std::string_view raw) {
+  const std::string value = trim(raw);
   if (value.size() >= 2) {
     const char quote = value.front();
     if ((quote == '"' || quote == '\'') && value.back() == quote) {
-      return std::string(value.substr(1, value.size() - 2));
+      return value.substr(1, value.size() - 2);
     }
   }
   if (!value.empty()) {
-    return std::string(value);
+    return value;
   }
   return std::nullopt;
 }
@@ -88,20 +90,36 @@ using KeyValueMap = std::map<std::string, std::string>;
   }
 
   std::string line;
+  std::size_t lineNumber = 0;
   while (std::getline(in, line)) {
-    line = stripComment(line);
-    if (line.empty()) {
+    ++lineNumber;
+    const std::string stripped = stripComment(line);
+    if (stripped.empty()) {
       continue;
     }
-    const std::size_t eq = line.find('=');
+    const std::size_t eq = stripped.find('=');
     if (eq == std::string::npos) {
+      kLog.warn("{}:{}: ignoring line without '=': '{}'", path.string(),
+                lineNumber, stripped);
       continue;
     }
-    const std::string key = trim(line.substr(0, eq));
-    const auto value = unquoteValue(line.substr(eq + 1));
-    if (!key.empty() && value.has_value()) {
-      map[key] = *value;
+    const std::string key = trim(stripped.substr(0, eq));
+    if (key.empty()) {
+      kLog.warn("{}:{}: ignoring entry with empty key", path.string(),
+                lineNumber);
+      continue;
     }
+    const auto value = unquoteValue(stripped.substr(eq + 1));
+    if (!value.has_value()) {
+      kLog.warn("{}:{}: ignoring key '{}' with empty value", path.string(),
+                lineNumber, key);
+      continue;
+    }
+    if (map.find(key) != map.end()) {
+      kLog.warn("{}:{}: duplicate key '{}' overrides earlier value",
+                path.string(), lineNumber, key);
+    }
+    map[key] = *value;
   }
   return map;
 }
@@ -220,6 +238,15 @@ GreeterPreferences loadGreeterPreferences() {
   GreeterPreferences prefs;
   const auto path = greeterConfPath();
   const KeyValueMap map = loadKeyValues(path);
+
+  static constexpr std::array<std::string_view, 4> kKnownKeys = {
+      "greeter_user", "default_session", "session", "scheme"};
+  for (const auto &[key, value] : map) {
+    if (std::find(kKnownKeys.begin(), kKnownKeys.end(),
+                  std::string_view(key)) == kKnownKeys.end()) {
+      kLog.warn("{}: unrecognized key '{}' (ignored)", path.string(), key);
+    }
+  }
 
   prefs.defaultSession = mapValue(map, {"default_session"});
   prefs.session = mapValue(map, {"session"});
