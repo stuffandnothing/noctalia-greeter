@@ -177,6 +177,31 @@ sudo ./build/noctalia-greeter-apply-appearance /run/user/1000/noctalia-greeter-s
 
 ---
 
+## Keyboard
+
+The greeter is fully operable without a pointer.
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `Shift+Tab` | Move focus forward / backward through the focus ring (works from inside the password field too) |
+| `↑` / `↓` | Move focus, or move the highlight when a dropdown menu is open |
+| `Enter` | Submit the password / activate the focused control / confirm the menu highlight |
+| `Space` | Activate the focused control (non-text controls) |
+| `Esc` | Close an open menu, or leave the password step |
+| `F3` | Open / close the **session** picker from anywhere |
+| `F7` | Open / close the **color scheme** picker from anywhere |
+
+---
+
+## Troubleshooting
+
+- **Blank screen / greeter does not start.** Check the logs at `/var/log/noctalia-greeter.log` and `/var/lib/noctalia-greeter/greeter.log` (run `just setup-log-dir` once if they are missing). The greeter logs its version and the build id at startup.
+- **`WAYLAND_DISPLAY is not set`.** The greeter must run under a Wayland compositor; greetd launches it via `noctalia-greeter-session` (Cage). Verify your greetd `command` points at that script.
+- **Session or scheme preference ignored.** Values in `greeter.conf` must match a discovered session **Name** (`noctalia-greeter sessions`) and a listed scheme. Unrecognized keys and malformed lines are now skipped with a warning in the log (with the offending line number) instead of failing silently.
+- **Appearance sync not applied.** Confirm both Noctalia Shell v5 and the polkit policy are installed, then restart greetd or log out once. See [Appearance sync](#appearance-sync-noctalia-shell-v5).
+
+---
+
 ## Development
 
 Run locally under Cage:
