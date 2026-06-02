@@ -973,7 +973,16 @@ void GreeterSurface::onAuthSuccess() {
     cmd.command = "/bin/sh";
   }
 
+  m_authenticating = true;
   if (!m_greetdClient->startSession(cmd)) {
+    // Reset greetd auth state so the next login calls create_session again.
+    m_authenticating = false;
+    m_authSessionStarted = false;
+    m_password.clear();
+    if (m_passwordField != nullptr) {
+      m_passwordField->setValue("");
+    }
+
     if (m_greetdClient->lastError()) {
       kLog.error("start_session failed: {}",
                  m_greetdClient->lastError()->description);
