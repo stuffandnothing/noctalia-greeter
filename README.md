@@ -42,7 +42,7 @@ Install everything below on the machine where greetd will run. Each list covers 
 
 ```sh
 sudo pacman -S meson gcc just \
-  greetd cage dbus \
+  greetd cage dbus polkit \
   wayland wayland-protocols \
   libglvnd freetype2 fontconfig \
   cairo pango \
@@ -54,7 +54,7 @@ sudo pacman -S meson gcc just \
 
 ```sh
 sudo dnf install meson gcc-c++ just \
-  greetd cage dbus \
+  greetd cage dbus polkit \
   wayland-devel wayland-protocols-devel \
   libEGL-devel mesa-libGLES-devel \
   freetype-devel fontconfig-devel \
@@ -67,7 +67,7 @@ sudo dnf install meson gcc-c++ just \
 
 ```sh
 sudo apt install meson g++ just \
-  greetd cage dbus \
+  greetd cage dbus policykit-1 \
   libwayland-dev wayland-protocols \
   libegl-dev libgles-dev \
   libfreetype-dev libfontconfig-dev \
@@ -80,7 +80,7 @@ sudo apt install meson g++ just \
 
 ```sh
 sudo xbps-install meson ninja pkg-config git \
-  greetd cage dbus \
+  greetd cage dbus polkit \
   wayland-devel wayland-protocols libepoxy-devel \
   MesaLib-devel libglvnd-devel cairo-devel \
   pango-devel fontconfig-devel freetype-devel \
@@ -124,32 +124,26 @@ sudo just install
 
 `just install` runs the same system setup scripts after Meson install.
 
-Meson installs the greeter binary, session launcher, assets, and a PolicyKit policy file (consumed when the shell syncs appearance):
+Meson installs the greeter binary, session launcher and assets. With the default prefix that is under `/usr/local`; distro packages (e.g. AUR) usually install to `/usr/bin` instead.
 
 ```text
-/usr/local/bin/noctalia-greeter
-/usr/local/bin/noctalia-greeter-session
-/usr/local/bin/noctalia-greeter-apply-appearance
-/usr/local/share/noctalia-greeter/assets/...
+<prefix>/bin/noctalia-greeter
+<prefix>/bin/noctalia-greeter-session
+<prefix>/bin/noctalia-greeter-apply-appearance
+<prefix>/share/noctalia-greeter/assets/...
 ```
 
 The greeter needs the shipped `assets/` tree at runtime. Copying only the `noctalia-greeter` binary is not enough.
 
 ## Setting up greetd
 
-`just install` and `setup_greeter_system.sh` prepare `/var/lib/noctalia-greeter/`, logs, and `greeter.conf`. They do **not** edit `/etc/greetd/config.toml` for you.
-
-After install, print a copy-paste block with paths and greeter user resolved for your machine:
+Point greetd at the installed session wrapper. Use the path on your system — do not assume `/usr/local` if you installed from a package:
 
 ```sh
-just print-greetd-config
-# or, when installed:
-noctalia-greeter-print-greetd-config
+which noctalia-greeter-session
 ```
 
-Copy the printed commands into a terminal. On an existing greetd setup the block backs up `config.toml` to `config.toml.bak` before replacing it.
-
-Manual edit instead (path matches your prefix):
+Example for a manual install to `/usr/local` (replace the path if `which` shows something else, e.g. `/usr/bin/noctalia-greeter-session`):
 
 ```toml
 [default_session]
@@ -157,10 +151,12 @@ command = "/usr/local/bin/noctalia-greeter-session"
 user = "greeter"
 ```
 
-Optional pinned desktop session (name must match the picker, e.g. `niri`):
+Use the `user` value that matches your greetd config. `setup_greeter_system.sh` prints a ready-to-paste `config.toml` block with the path it finds. It also prepares `/var/lib/noctalia-greeter/` for that account.
+
+Optional default session (must match a name from the session picker, e.g. `niri`):
 
 ```toml
-command = "/usr/local/bin/noctalia-greeter-session -- --session niri"
+command = "/usr/bin/noctalia-greeter-session -- --session niri"
 ```
 
 List valid session names:
@@ -169,11 +165,29 @@ List valid session names:
 noctalia-greeter sessions
 ```
 
-Logs: `/var/log/noctalia-greeter.log` and `/var/lib/noctalia-greeter/greeter.log`. Run `just setup-log-dir` if they are missing.
+Restart greetd:
+
+```sh
+sudo systemctl restart greetd
+```
+
+On runit:
+
+```sh
+sudo sv restart greetd
+```
+
+Create log files once if needed:
+
+```sh
+just setup-log-dir
+```
+
+Logs: `/var/log/noctalia-greeter.log` and `/var/lib/noctalia-greeter/greeter.log`.
 
 ## Matching Noctalia Shell
 
-With [Noctalia Shell v5](https://github.com/noctalia-dev/noctalia-shell/tree/v5) installed on your desktop (polkit required there, not on the greetd host), open **Settings → Shell → Security → Noctalia Greeter → Sync Now**. The shell stages files and runs `pkexec noctalia-greeter-apply-appearance` to install them under `/var/lib/noctalia-greeter/`. After syncing, log out or restart greetd to see the changes on the login screen.
+With [Noctalia Shell v5](https://github.com/noctalia-dev/noctalia-shell/tree/v5) installed, open **Settings → Shell → Security → Noctalia Greeter → Sync Now**. The shell copies your wallpaper and palette to the greeter (admin prompt via polkit). After syncing, log out or restart greetd to see the changes on the login screen.
 
 The greeter adds a **Synced** color scheme when sync data is present. Session and scheme choices you make on the login screen are remembered in `/var/lib/noctalia-greeter/greeter.conf`.
 
@@ -201,9 +215,10 @@ The greeter works without a mouse.
 ## Troubleshooting
 
 - **Blank screen** - Check `/var/log/noctalia-greeter.log` and `/var/lib/noctalia-greeter/greeter.log`. Run `just setup-log-dir` if they are missing.
+- **`Failed to spawn client` / wrong path in greetd config** - `command` must be the full path from `which noctalia-greeter-session` (often `/usr/bin/...` on packaged installs, not `/usr/local/bin/...`).
 - **`WAYLAND_DISPLAY is not set`** - greetd must use `noctalia-greeter-session` (it starts Cage). Fix `command` in `/etc/greetd/config.toml`.
 - **Wrong session on startup** - If `default_session` is set in `greeter.conf`, it wins over last-used `session`. Run `noctalia-greeter sessions` for exact **Name** spelling.
-- **Synced look missing** - Install the greeter on the greetd host and shell v5 (with polkit) on your desktop session; use **Sync Now** again; restart greetd or log out once.
+- **Synced look missing** - Install shell v5, greeter, and the polkit policy; sync again; restart greetd or log out once.
 
 Stuck display over SSH:
 
@@ -211,10 +226,24 @@ Stuck display over SSH:
 just recover
 ```
 
-## Contributing
+---
 
-We welcome contributions of any size - bug fixes, new features, documentation improvements!
+## Scope
 
+Noctalia Greeter is a **display/login greeter** for greetd. It handles user/session selection and authentication UI.
+
+It is **not** a desktop shell or compositor replacement.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome: fixes, polish, docs, or UX improvements.
+
+- Open an issue for bugs and regressions
+- Open a PR for improvements
+
+---
 ## License
 
 Distributed under the MIT License. See [LICENSE](LICENSE) for details.
