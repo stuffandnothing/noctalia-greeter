@@ -39,16 +39,16 @@ constexpr Logger kLog("greetd-user");
 }
 
 [[nodiscard]] std::optional<std::string>
-unquoteTomlValue(std::string_view value) {
-  value = trim(value);
+unquoteTomlValue(std::string_view raw) {
+  const std::string value = trim(raw);
   if (value.size() >= 2) {
     const char quote = value.front();
     if ((quote == '"' || quote == '\'') && value.back() == quote) {
-      return std::string(value.substr(1, value.size() - 2));
+      return value.substr(1, value.size() - 2);
     }
   }
   if (!value.empty()) {
-    return std::string(value);
+    return value;
   }
   return std::nullopt;
 }
