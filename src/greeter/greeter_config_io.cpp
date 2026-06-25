@@ -22,7 +22,8 @@ namespace {
         || key == "appearance"
         || key == "output"
         || key == "cursor"
-        || key == "keyboard";
+        || key == "keyboard"
+        || key == "auth";
   }
 
   [[nodiscard]] bool isKnownSessionKey(std::string_view key) { return key == "default" || key == "last"; }
@@ -40,6 +41,8 @@ namespace {
   [[nodiscard]] bool isKnownKeyboardKey(std::string_view key) {
     return key == "layout" || key == "variant" || key == "options";
   }
+
+  [[nodiscard]] bool isKnownAuthKey(std::string_view key) { return key == "allow_empty_password"; }
 
   [[nodiscard]] std::optional<std::string> stringValue(const toml::node& node) {
     if (const auto value = node.value<std::string>()) {
@@ -165,6 +168,14 @@ namespace {
             config.keyboardVariant = stringValue(entryNode);
           } else {
             config.keyboardOptions = stringValue(entryNode);
+          }
+        } else if (keyView == "auth") {
+          if (!isKnownAuthKey(entryView)) {
+            warnUnknownSectionKey(path, keyView, entryView);
+            continue;
+          }
+          if (const auto value = entryNode.value<bool>()) {
+            config.authAllowEmptyPassword = *value;
           }
         }
       }
